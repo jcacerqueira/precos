@@ -1,0 +1,30 @@
+{
+  "name": "pricewatch-pt-comparator",
+  "version": "2.1.0",
+  "description": "Comparador e alertas de promoções para supermercados em Portugal",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node --watch src/server/index.js",
+    "dev:client": "vite --host 0.0.0.0 --config client/vite.config.js",
+    "build": "vite build --config client/vite.config.js",
+    "start": "node src/server/index.js",
+    "check": "node src/server/scripts/check-once.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "cheerio": "1.0.0-rc.12",
+    "cors": "2.8.5",
+    "dotenv": "16.4.7",
+    "express": "4.21.2",
+    "node-cron": "3.0.3",
+    "nodemailer": "6.9.16",
+    "pg": "8.13.1",
+    "vite": "5.4.11",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "concurrently": "9.1.0"
+  }
+}
