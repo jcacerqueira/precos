@@ -27,13 +27,14 @@ function App() {
   const [recent, setRecent] = useState([]);
   const [stores, setStores] = useState([]);
   const [adminKey, setAdminKey] = useState(localStorage.getItem('adminKey') || '');
-  const [form, setForm] = useState({ name: '', context: '', targetPrice: '' });
+  const [form, setForm] = useState({ name: '', context: '', targetPrice: '', storeLinks: {} });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [expanded, setExpanded] = useState({});
   const [expandedLoading, setExpandedLoading] = useState(null);
   const [logs, setLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [linkEditor, setLinkEditor] = useState({ productId: null, values: {}, loading: false });
 
   const promoCount = useMemo(() => products.filter(p => p.best_result?.isPromo).length, [products]);
 
@@ -60,6 +61,44 @@ function App() {
     setMessage('Admin API key guardada neste browser.');
   }
 
+  function storeLinksArray(values = form.storeLinks) {
+    return stores
+      .filter(store => store.enabled)
+      .map(store => ({
+        storeKey: store.key,
+        storeName: store.name,
+        url: String(values?.[store.key] || '').trim()
+      }))
+      .filter(link => link.url);
+  }
+
+  async function openLinkEditor(product) {
+    setLinkEditor({ productId: product.id, values: {}, loading: true });
+    try {
+      const links = await api(`/api/products/${product.id}/links`);
+      const values = {};
+      for (const link of links) values[link.storeKey] = link.url;
+      setLinkEditor({ productId: product.id, values, loading: false });
+    } catch (error) {
+      setMessage(error.message);
+      setLinkEditor({ productId: null, values: {}, loading: false });
+    }
+  }
+
+  async function saveLinkEditor(productId) {
+    setLoading(true);
+    try {
+      const storeLinks = stores
+        .filter(store => store.enabled)
+        .map(store => ({ storeKey: store.key, storeName: store.name, url: String(linkEditor.values?.[store.key] || '').trim() }));
+      await api(`/api/products/${productId}/links`, { method: 'PUT', body: JSON.stringify({ storeLinks }) });
+      setMessage('Links guardados. Faz reset/verificação para usar os links manuais.');
+      setLinkEditor({ productId: null, values: {}, loading: false });
+      await load();
+    } catch (error) { setMessage(error.message); }
+    finally { setLoading(false); }
+  }
+
   async function addProduct(e) {
     e.preventDefault();
     setLoading(true);
@@ -69,10 +108,11 @@ function App() {
         body: JSON.stringify({
           name: form.name,
           context: form.context,
-          targetPrice: form.targetPrice ? Number(form.targetPrice) : null
+          targetPrice: form.targetPrice ? Number(form.targetPrice) : null,
+          storeLinks: storeLinksArray()
         })
       });
-      setForm({ name: '', context: '', targetPrice: '' });
+      setForm({ name: '', context: '', targetPrice: '', storeLinks: {} });
       setMessage('Produto adicionado. Usa “Verificar preços agora” para procurar já.');
       await load();
     } catch (error) { setMessage(error.message); }
@@ -171,6 +211,13 @@ function App() {
         <label>Preço alvo opcional
           <input type="number" step="0.01" placeholder="Ex: 1.50" value={form.targetPrice} onChange={e => setForm({ ...form, targetPrice: e.target.value })} />
         </label>
+        <div className="manual-links">
+          <h3>Links diretos por loja (opcional, recomendado)</h3>
+          <p className="hint">Quando configurares o link correto numa loja, a app usa esse link em vez de tentar adivinhar pela pesquisa. Isto evita confundir 1.5L com 0.5L, packs ou produtos sem relação.</p>
+          {stores.filter(store => store.enabled).map(store => <label key={store.key}>{store.name}
+            <input placeholder={`URL do produto em ${store.name}`} value={form.storeLinks?.[store.key] || ''} onChange={e => setForm({ ...form, storeLinks: { ...(form.storeLinks || {}), [store.key]: e.target.value } })} />
+          </label>)}
+        </div>
         <button disabled={loading}>Adicionar</button>
       </form>
     </section>
@@ -188,9 +235,25 @@ function App() {
             <span>{p.best_result?.url ? <a href={p.best_result.url} target="_blank" rel="noreferrer">Abrir loja</a> : '-'}</span>
             <span className="row-actions">
               <button className="ghost" onClick={() => toggleProductResults(p.id)}>{expandedLoading === p.id ? 'A carregar...' : expanded[p.id] ? 'Fechar' : 'Ver lojas'}</button>
+              <button className="ghost" onClick={() => openLinkEditor(p)}>Links</button>
               <button className="ghost" onClick={() => removeProduct(p.id)}>Remover</button>
             </span>
           </div>
+
+          {linkEditor.productId === p.id && <div className="store-detail link-editor">
+            <h3>Links diretos para {p.name}</h3>
+            <p className="hint">Cola aqui a página exata do produto em cada loja. Deixa vazio quando quiseres que a app tente pesquisar automaticamente nessa loja.</p>
+            <div className="link-grid">
+              {stores.filter(store => store.enabled).map(store => <label key={store.key}>{store.name}
+                <input placeholder={`URL do produto em ${store.name}`} value={linkEditor.values?.[store.key] || ''} onChange={e => setLinkEditor(prev => ({ ...prev, values: { ...(prev.values || {}), [store.key]: e.target.value } }))} />
+              </label>)}
+            </div>
+            <div className="row-actions editor-actions">
+              <button className="ghost" onClick={() => saveLinkEditor(p.id)} disabled={loading || linkEditor.loading}>Guardar links</button>
+              <button className="ghost" onClick={() => setLinkEditor({ productId: null, values: {}, loading: false })}>Cancelar</button>
+            </div>
+          </div>}
+
           {expanded[p.id] && <div className="store-detail">
             <h3>Preços encontrados para {p.name}</h3>
             <div className="detail-table">

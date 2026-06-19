@@ -26,6 +26,20 @@ export async function initDb() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS product_store_links (
+      id BIGSERIAL PRIMARY KEY,
+      product_id TEXT NOT NULL REFERENCES watched_products(id) ON DELETE CASCADE,
+      store_key TEXT NOT NULL,
+      store_name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(product_id, store_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_product_store_links_product ON product_store_links(product_id);
+
     CREATE TABLE IF NOT EXISTS store_results (
       id BIGSERIAL PRIMARY KEY,
       product_id TEXT NOT NULL REFERENCES watched_products(id) ON DELETE CASCADE,
@@ -79,6 +93,16 @@ export async function listProducts() {
   const { rows } = await pool.query(`
     SELECT p.*,
       (
+        SELECT COALESCE(json_agg(json_build_object(
+          'storeKey', l.store_key,
+          'storeName', l.store_name,
+          'url', l.url,
+          'active', l.active
+        ) ORDER BY l.store_name), '[]'::json)
+        FROM product_store_links l
+        WHERE l.product_id = p.id
+      ) AS store_links,
+      (
         SELECT json_build_object(
           'store', r.store,
           'title', r.title,
@@ -103,18 +127,77 @@ export async function listProducts() {
 }
 
 export async function getActiveProducts() {
-  const { rows } = await pool.query('SELECT * FROM watched_products WHERE active = TRUE ORDER BY created_at ASC');
+  const { rows } = await pool.query(`
+    SELECT p.*,
+      COALESCE((
+        SELECT json_agg(json_build_object(
+          'storeKey', l.store_key,
+          'storeName', l.store_name,
+          'url', l.url,
+          'active', l.active
+        ) ORDER BY l.store_name)
+        FROM product_store_links l
+        WHERE l.product_id = p.id AND l.active = TRUE
+      ), '[]'::json) AS store_links
+    FROM watched_products p
+    WHERE p.active = TRUE
+    ORDER BY p.created_at ASC
+  `);
   return rows;
 }
 
-export async function createProduct({ id, name, context, targetPrice }) {
+export async function createProduct({ id, name, context, targetPrice, storeLinks = [] }) {
   const { rows } = await pool.query(
     `INSERT INTO watched_products (id, name, context, target_price)
      VALUES ($1, $2, $3, $4)
      RETURNING *`,
     [id, name, context || '', targetPrice || null]
   );
+  if (Array.isArray(storeLinks) && storeLinks.length) {
+    await setProductStoreLinks(id, storeLinks);
+  }
   return rows[0];
+}
+
+export async function setProductStoreLinks(productId, links = []) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const link of links) {
+      const storeKey = String(link.storeKey || '').trim().toLowerCase();
+      const storeName = String(link.storeName || storeKey || '').trim();
+      const url = String(link.url || '').trim();
+      if (!storeKey) continue;
+      if (!url) {
+        await client.query('DELETE FROM product_store_links WHERE product_id = $1 AND store_key = $2', [productId, storeKey]);
+        continue;
+      }
+      await client.query(
+        `INSERT INTO product_store_links (product_id, store_key, store_name, url, active, updated_at)
+         VALUES ($1,$2,$3,$4,TRUE,NOW())
+         ON CONFLICT (product_id, store_key)
+         DO UPDATE SET store_name = EXCLUDED.store_name, url = EXCLUDED.url, active = TRUE, updated_at = NOW()`,
+        [productId, storeKey, storeName, url]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getProductStoreLinks(productId) {
+  const { rows } = await pool.query(
+    `SELECT store_key AS "storeKey", store_name AS "storeName", url, active
+     FROM product_store_links
+     WHERE product_id = $1
+     ORDER BY store_name ASC`,
+    [productId]
+  );
+  return rows;
 }
 
 export async function updateProduct(id, data) {

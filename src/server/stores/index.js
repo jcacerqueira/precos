@@ -420,6 +420,47 @@ function buildSearchQueries(query, context = '') {
   return [...new Set([`${base} ${ctx}`.trim(), base, withoutUnits, compact].filter(q => q && q.length >= 2))].slice(0, 4);
 }
 
+
+export async function searchDirectProductUrl(store, productUrl, query, context = '', logger = null) {
+  logger?.({ level: 'info', event: 'manual_url_fetch_start', store: store.name, message: `A usar link manual em ${store.name}`, data: { url: productUrl } });
+  const html = await fetchWithTimeout(productUrl);
+  const $ = cheerio.load(html);
+  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+  const title = cleanCandidateTitle(
+    $('h1').first().text().trim() ||
+    $('meta[property="og:title"]').attr('content') ||
+    $('title').first().text().trim() ||
+    query
+  );
+  const structured = extractStructuredPriceInfo($('body'));
+  const textInfo = pickPriceInfo(bodyText);
+  const price = structured.price || textInfo.price;
+  const oldPriceRaw = structured.oldPrice || textInfo.oldPrice || extractOldPrice($('body'), bodyText);
+  const promoText = extractPromoText($('body'), bodyText);
+  const imageUrl = absoluteUrl(productUrl, $('meta[property="og:image"]').attr('content') || $('img[src]').first().attr('src'));
+
+  const result = price ? {
+    store: store.name,
+    title: title || query,
+    price,
+    oldPrice: oldPriceRaw && oldPriceRaw > price ? oldPriceRaw : null,
+    promoText,
+    url: productUrl,
+    imageUrl,
+    matchScore: 100,
+    isPromo: isPromotion({ price, oldPrice: oldPriceRaw, promoText })
+  } : null;
+
+  logger?.({
+    level: result ? 'info' : 'warn',
+    event: 'manual_url_fetch_done',
+    store: store.name,
+    message: result ? `${store.name}: preço extraído do link manual` : `${store.name}: link manual carregado mas sem preço extraído`,
+    data: { url: productUrl, title, price: result?.price || null, oldPrice: result?.oldPrice || null, promoText: result?.promoText || null, htmlLength: html.length }
+  });
+  return result ? [result] : [];
+}
+
 export async function searchStore(store, query, context = '', logger = null) {
   const queries = buildSearchQueries(query, context);
   const allResults = [];
@@ -475,14 +516,18 @@ function classifyScraperError(error) {
   return msg;
 }
 
-export async function searchAllStores(query, context = '', logger = null) {
+export async function searchAllStores(query, context = '', logger = null, manualLinks = []) {
   const stores = getEnabledStores();
   console.log('[scraper] lojas ativas:', stores.map(s => s.name).join(', '));
-  logger?.({ level: 'info', event: 'product_start', message: `A verificar "${query}"`, data: { query, context, enabledStores: stores.map(s => s.name) } });
+  const linkMap = new Map((Array.isArray(manualLinks) ? manualLinks : []).filter(l => l?.active !== false && l?.url).map(l => [String(l.storeKey || '').toLowerCase(), l.url]));
+  logger?.({ level: 'info', event: 'product_start', message: `A verificar "${query}"`, data: { query, context, enabledStores: stores.map(s => s.name), manualLinks: [...linkMap.keys()] } });
 
   const settled = await Promise.allSettled(stores.map(async store => {
     try {
-      const results = await searchStore(store, query, context, logger);
+      const manualUrl = linkMap.get(store.key);
+      const results = manualUrl
+        ? await searchDirectProductUrl(store, manualUrl, query, context, logger)
+        : await searchStore(store, query, context, logger);
       logger?.({ level: 'info', event: 'store_done', store: store.name, message: `${store.name}: ${results.length} resultados totais antes do filtro final`, data: { count: results.length } });
       return results;
     } catch (error) {

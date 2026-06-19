@@ -27,7 +27,7 @@ export async function checkProduct(product, runId = crypto.randomUUID()) {
   const logger = makeLogger({ runId, product });
   await logger({ level: 'info', event: 'product_filter', message: `Filtro final MIN_MATCH_SCORE=${minScore}`, data: { minScore, context: product.context || '' } });
 
-  const results = await searchAllStores(product.name, product.context || '', logger);
+  const results = await searchAllStores(product.name, product.context || '', logger, product.store_links || []);
   const rejected = results
     .filter(r => !r.price || r.matchScore < minScore)
     .sort((a, b) => b.matchScore - a.matchScore)

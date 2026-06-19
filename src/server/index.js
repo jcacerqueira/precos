@@ -9,6 +9,8 @@ import {
   listProducts,
   createProduct,
   updateProduct,
+  setProductStoreLinks,
+  getProductStoreLinks,
   deleteProduct,
   resetResults,
   resetScrapeLogs,
@@ -53,7 +55,8 @@ app.post('/api/products', requireAdmin, async (req, res, next) => {
       id: crypto.randomUUID(),
       name: String(name).trim(),
       context: String(context || '').trim(),
-      targetPrice: targetPrice ? Number(targetPrice) : null
+      targetPrice: targetPrice ? Number(targetPrice) : null,
+      storeLinks: req.body.storeLinks || []
     });
     res.status(201).json(product);
   } catch (error) { next(error); }
@@ -61,6 +64,18 @@ app.post('/api/products', requireAdmin, async (req, res, next) => {
 
 app.put('/api/products/:id', requireAdmin, async (req, res, next) => {
   try { res.json(await updateProduct(req.params.id, req.body)); } catch (error) { next(error); }
+});
+
+
+app.get('/api/products/:id/links', requireAdmin, async (req, res, next) => {
+  try { res.json(await getProductStoreLinks(req.params.id)); } catch (error) { next(error); }
+});
+
+app.put('/api/products/:id/links', requireAdmin, async (req, res, next) => {
+  try {
+    await setProductStoreLinks(req.params.id, req.body.storeLinks || []);
+    res.json({ ok: true, links: await getProductStoreLinks(req.params.id) });
+  } catch (error) { next(error); }
 });
 
 app.delete('/api/products/:id', requireAdmin, async (req, res, next) => {
@@ -78,10 +93,13 @@ app.get('/api/logs/scraper', requireAdmin, async (req, res, next) => {
 app.get('/api/products/:id/results', async (req, res, next) => {
   try {
     const rows = await productResults(req.params.id);
+    const links = await getProductStoreLinks(req.params.id);
+    const linksByKey = new Map(links.map(l => [l.storeKey, l]));
     const byStore = new Map(rows.map(r => [r.store, r]));
     const allStores = getStoreConfig().filter(s => s.enabled).map(s => {
       const r = byStore.get(s.name);
-      return r || { id: `empty-${s.key}`, store: s.name, title: 'Sem resultado', price: null, old_price: null, promo_text: null, url: null, match_score: null, is_promo: false, checked_at: null, no_result: true };
+      const manual = linksByKey.get(s.key);
+      return r || { id: `empty-${s.key}`, store: s.name, title: manual?.url ? 'Link manual configurado, mas sem resultado nesta verificação' : 'Sem resultado', price: null, old_price: null, promo_text: null, url: manual?.url || null, match_score: null, is_promo: false, checked_at: null, no_result: true, manual_url: Boolean(manual?.url) };
     });
     res.json(allStores);
   } catch (error) { next(error); }

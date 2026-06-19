@@ -67,3 +67,33 @@ em { display: inline-block; margin-top: 6px; color: #b42318; font-style: normal;
 .log-line pre { white-space:pre-wrap; word-break:break-word; background:#0f172a; color:#dbeafe; border-radius:10px; padding:12px; overflow:auto; }
 .log-line summary { cursor:pointer; margin-top:8px; color:#2563eb; }
 @media (max-width: 900px) { .log-line > div { grid-template-columns:1fr; } }
+
+.manual-links,
+.link-editor {
+  grid-column: 1 / -1;
+}
+
+.manual-links h3,
+.link-editor h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.manual-links {
+  border: 1px solid #dce5ef;
+  border-radius: 16px;
+  padding: 1rem;
+  background: #f8fbff;
+}
+
+.link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.editor-actions {
+  margin-top: 0.8rem;
+  justify-content: flex-end;
+}
