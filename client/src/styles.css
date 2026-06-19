@@ -53,3 +53,17 @@ em { display: inline-block; margin-top: 6px; color: #b42318; font-style: normal;
 .detail-row:last-child { border-bottom:0; }
 .detail-head { font-weight:800; color:#475569; }
 .detail-row small { font-size:12px; }
+
+.section-head { display:flex; justify-content:space-between; gap:16px; align-items:center; }
+.muted-row { opacity: .72; background: #fafbfc; }
+.logs-card { border-color:#c8d7ee; }
+.logs-list { display:flex; flex-direction:column; gap:10px; max-height:620px; overflow:auto; padding-right:4px; }
+.log-line { border:1px solid #e4e9f1; border-radius:14px; padding:12px 14px; background:#fff; }
+.log-line.warn { border-color:#ffdca8; background:#fffaf1; }
+.log-line.error { border-color:#ffc7c7; background:#fff5f5; }
+.log-line > div { display:grid; grid-template-columns: 190px 1fr 130px 170px; gap:10px; align-items:center; color:#40516a; }
+.log-line p { margin:8px 0 0; }
+.log-line code { background:#eef3fa; border-radius:8px; padding:4px 7px; font-size:12px; }
+.log-line pre { white-space:pre-wrap; word-break:break-word; background:#0f172a; color:#dbeafe; border-radius:10px; padding:12px; overflow:auto; }
+.log-line summary { cursor:pointer; margin-top:8px; color:#2563eb; }
+@media (max-width: 900px) { .log-line > div { grid-template-columns:1fr; } }

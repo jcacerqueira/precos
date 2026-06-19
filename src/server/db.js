@@ -56,6 +56,22 @@ export async function initDb() {
       reason TEXT,
       sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS scrape_logs (
+      id BIGSERIAL PRIMARY KEY,
+      run_id TEXT,
+      product_id TEXT,
+      product_name TEXT,
+      store TEXT,
+      level TEXT NOT NULL DEFAULT 'info',
+      event TEXT NOT NULL,
+      message TEXT NOT NULL,
+      data JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scrape_logs_time ON scrape_logs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_scrape_logs_run ON scrape_logs(run_id, created_at ASC);
   `);
 }
 
@@ -123,6 +139,30 @@ export async function deleteProduct(id) {
 export async function resetResults() {
   await pool.query('DELETE FROM store_results');
   await pool.query("DELETE FROM notification_log WHERE type IN ('promotion', 'summary')");
+}
+
+export async function resetScrapeLogs() {
+  await pool.query('DELETE FROM scrape_logs');
+}
+
+export async function addScrapeLog({ runId, productId, productName, store, level = 'info', event, message, data }) {
+  try {
+    await pool.query(
+      `INSERT INTO scrape_logs (run_id, product_id, product_name, store, level, event, message, data)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [runId || null, productId || null, productName || null, store || null, level, event || 'log', message || '', data ? JSON.stringify(data) : null]
+    );
+  } catch (error) {
+    console.warn('[scrape-log] falhou a gravar log:', error.message);
+  }
+}
+
+export async function recentScrapeLogs(limit = 200) {
+  const { rows } = await pool.query(
+    `SELECT * FROM scrape_logs ORDER BY created_at DESC LIMIT $1`,
+    [Math.max(1, Math.min(Number(limit) || 200, 1000))]
+  );
+  return rows;
 }
 
 export async function saveResults(productId, results) {

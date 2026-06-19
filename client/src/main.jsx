@@ -32,6 +32,8 @@ function App() {
   const [message, setMessage] = useState('');
   const [expanded, setExpanded] = useState({});
   const [expandedLoading, setExpandedLoading] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [showLogs, setShowLogs] = useState(false);
 
   const promoCount = useMemo(() => products.filter(p => p.best_result?.isPromo).length, [products]);
 
@@ -44,6 +46,11 @@ function App() {
     setProducts(p);
     setRecent(r);
     setStores(s);
+  }
+
+  async function loadLogs() {
+    const rows = await api('/api/logs/scraper?limit=300');
+    setLogs(rows);
   }
 
   useEffect(() => { load().catch(e => setMessage(e.message)); }, []);
@@ -103,6 +110,10 @@ function App() {
       const result = await api(path, { method: 'POST', body: '{}' });
       setMessage(`${label}: concluído. ${JSON.stringify(result.result || { ok: result.ok })}`);
       await load();
+      if (showLogs || path.includes('check-now') || path.includes('run-daily')) {
+        setShowLogs(true);
+        try { await loadLogs(); } catch {}
+      }
     } catch (error) { setMessage(error.message); }
     finally { setLoading(false); }
   }
@@ -128,6 +139,8 @@ function App() {
       <div className="actions">
         <button disabled={loading} onClick={() => adminAction('/api/admin/check-now', 'Verificar preços agora')}>Verificar preços agora</button>
         <button disabled={loading} onClick={() => { if (confirm('Apagar todos os últimos resultados e histórico de notificações? Os produtos monitorizados ficam guardados.')) adminAction('/api/admin/reset-results', 'Reset aos últimos resultados'); }}>Reset resultados</button>
+        <button disabled={loading} onClick={async () => { setShowLogs(true); try { await loadLogs(); } catch (e) { setMessage(e.message); } }}>Ver logs scraper</button>
+        <button disabled={loading} onClick={() => { if (confirm('Apagar logs do scraper?')) adminAction('/api/admin/reset-scrape-logs', 'Reset logs scraper'); }}>Reset logs</button>
         <button disabled={loading} onClick={() => adminAction('/api/admin/smtp-diagnostics', 'Diagnóstico SMTP')}>Diagnóstico SMTP</button>
         <button disabled={loading} onClick={() => adminAction('/api/admin/send-summary-test', 'Enviar email resumo teste')}>Enviar resumo teste</button>
         <button disabled={loading} onClick={() => adminAction('/api/admin/send-promotion-test', 'Enviar email promoção teste')}>Enviar promoção teste</button>
@@ -182,12 +195,12 @@ function App() {
             <h3>Preços encontrados para {p.name}</h3>
             <div className="detail-table">
               <div className="detail-row detail-head"><span>Loja</span><span>Produto encontrado</span><span>Preço</span><span>Estado</span><span>Score</span><span>Link</span></div>
-              {expanded[p.id].map(r => <div className="detail-row" key={r.id}>
+              {expanded[p.id].map(r => <div className={`detail-row ${r.no_result ? 'muted-row' : ''}`} key={r.id || r.store}>
                 <span>{r.store}</span>
-                <span>{r.title}</span>
-                <span>{money(r.price)}{r.old_price ? <small>Antes/PVPR {money(r.old_price)}</small> : null}</span>
-                <span>{r.is_promo ? <b className="promo">Promoção</b> : 'Normal'}{r.promo_text ? <small>{r.promo_text}</small> : null}</span>
-                <span>{r.match_score}</span>
+                <span>{r.no_result ? 'Sem resultado aceite nesta verificação' : r.title}</span>
+                <span>{r.price ? money(r.price) : '-'}{r.old_price ? <small>Antes/PVPR {money(r.old_price)}</small> : null}</span>
+                <span>{r.no_result ? 'Sem resultado' : (r.is_promo ? <b className="promo">Promoção</b> : 'Normal')}{r.promo_text ? <small>{r.promo_text}</small> : null}</span>
+                <span>{r.match_score ?? '-'}</span>
                 <span>{r.url ? <a href={r.url} target="_blank" rel="noreferrer">Abrir</a> : '-'}</span>
               </div>)}
               {!expanded[p.id].length && <p className="empty">Ainda não há resultados recentes para este produto.</p>}
@@ -197,6 +210,31 @@ function App() {
         {!products.length && <p className="empty">Ainda não adicionaste produtos.</p>}
       </div>
     </section>
+
+
+    {showLogs && <section className="card logs-card">
+      <div className="section-head">
+        <h2>Logs do scraper</h2>
+        <div className="row-actions">
+          <button className="ghost" onClick={() => loadLogs().catch(e => setMessage(e.message))}>Atualizar logs</button>
+          <button className="ghost" onClick={() => setShowLogs(false)}>Fechar logs</button>
+        </div>
+      </div>
+      <p className="hint">Aqui vês cada loja pesquisada, quantos candidatos encontrou, que candidatos foram rejeitados pelo score e erros como 403/404/timeout.</p>
+      <div className="logs-list">
+        {logs.map(log => <article key={log.id} className={`log-line ${log.level}`}>
+          <div>
+            <strong>{new Date(log.created_at).toLocaleString('pt-PT')}</strong>
+            <span>{log.product_name || '-'}</span>
+            <span>{log.store || '-'}</span>
+            <code>{log.event}</code>
+          </div>
+          <p>{log.message}</p>
+          {log.data && <details><summary>Dados</summary><pre>{JSON.stringify(log.data, null, 2)}</pre></details>}
+        </article>)}
+        {!logs.length && <p className="empty">Sem logs ainda. Clica em “Verificar preços agora”.</p>}
+      </div>
+    </section>}
 
     <section className="card">
       <h2>Últimos resultados encontrados</h2>

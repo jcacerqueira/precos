@@ -53,24 +53,47 @@ function normalizeText(value = '') {
 function tokenize(value = '') {
   return normalizeText(value)
     .split(' ')
-    .filter(t => t.length > 1 && !['de','do','da','e','com','pt','un','pack','emb'].includes(t));
+    .filter(t => t.length > 1 && !['de','do','da','e','com','pt','un','pack','emb','sem','gas','gás'].includes(t));
 }
 
 export function scoreMatch(query, title, context = '') {
-  const wanted = tokenize(`${query} ${context}`);
+  const wanted = [...new Set(tokenize(`${query} ${context}`))];
   const actual = normalizeText(title);
   if (!wanted.length || !actual) return 0;
+
+  let matched = 0;
   let score = 0;
   for (const token of wanted) {
-    if (actual.includes(token)) score += token.length >= 4 ? 15 : 8;
+    if (actual.includes(token)) {
+      matched += 1;
+      score += token.length >= 5 ? 18 : 10;
+    }
   }
+
   const q = normalizeText(query);
-  if (actual.includes(q)) score += 60;
-  const sizeMatches = normalizeText(`${query} ${context}`).match(/\b\d+(?:[,.]\d+)?\s?(l|lt|ml|kg|g)\b/g) || [];
-  for (const s of sizeMatches) {
-    if (actual.includes(s.replace(',', '.')) || actual.includes(s.replace('.', ','))) score += 25;
+  if (q && actual.includes(q)) score += 50;
+
+  // Se a maior parte dos termos distintivos aparece, aceita mesmo quando a ordem é diferente.
+  const coverage = matched / wanted.length;
+  if (coverage >= 0.75) score += 35;
+  else if (coverage >= 0.55) score += 18;
+
+  const wantedSize = normalizeText(`${query} ${context}`).match(/\b\d+(?:[,.]\d+)?\s?(l|lt|ml|kg|g)\b/g) || [];
+  for (const s of wantedSize) {
+    const comma = s.replace('.', ',');
+    const dot = s.replace(',', '.');
+    const spaced = dot.replace(/(\d)(l|lt|ml|kg|g)$/i, '$1 $2');
+    if (actual.includes(comma) || actual.includes(dot) || actual.includes(spaced)) score += 25;
   }
-  return Math.min(score, 100);
+
+  // Penaliza produtos claramente de outra marca quando a query contém marca conhecida.
+  const brandTokens = ['santal','fanta','compal','coca','cola','pepsi','sumol','lipton','frize','super', 'bock'];
+  const queryBrands = brandTokens.filter(b => q.includes(b));
+  for (const brand of queryBrands) {
+    if (!actual.includes(brand)) score -= 25;
+  }
+
+  return Math.max(0, Math.min(Math.round(score), 100));
 }
 
 function priceCandidates(text = '') {
@@ -315,24 +338,61 @@ async function fetchWithTimeout(url, attempts = Number(process.env.SCRAPER_ATTEM
   throw lastError;
 }
 
-export async function searchStore(store, query, context = '') {
-  const url = store.searchUrl(`${query} ${context}`.trim());
-  const html = await fetchWithTimeout(url);
-  const $ = cheerio.load(html);
-  const results = [
-    ...extractJsonLdProducts($, store.name, url, query, context),
-    ...extractHtmlCandidates($, store.name, url, query, context)
-  ];
+function buildSearchQueries(query, context = '') {
+  const base = String(query || '').trim();
+  const ctx = String(context || '').trim();
+  const withoutUnits = base
+    .replace(/\b\d+(?:[,.]\d+)?\s?(?:l|lt|litro|litros|ml|cl|kg|g)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const compact = tokenize(`${base} ${ctx}`).join(' ');
+  return [...new Set([`${base} ${ctx}`.trim(), base, withoutUnits, compact].filter(q => q && q.length >= 2))].slice(0, 4);
+}
+
+export async function searchStore(store, query, context = '', logger = null) {
+  const queries = buildSearchQueries(query, context);
+  const allResults = [];
+  const minCandidateScore = Number(process.env.CANDIDATE_LOG_SCORE || 10);
+
+  for (const searchQuery of queries) {
+    const url = store.searchUrl(searchQuery);
+    logger?.({ level: 'info', event: 'store_fetch_start', store: store.name, message: `A pesquisar ${store.name}: "${searchQuery}"`, data: { url, searchQuery } });
+    const html = await fetchWithTimeout(url);
+    const $ = cheerio.load(html);
+    const jsonResults = extractJsonLdProducts($, store.name, url, query, context);
+    const htmlResults = extractHtmlCandidates($, store.name, url, query, context);
+    const results = [...jsonResults, ...htmlResults];
+
+    logger?.({
+      level: 'info',
+      event: 'store_fetch_done',
+      store: store.name,
+      message: `${store.name}: ${results.length} candidatos encontrados para "${searchQuery}"`,
+      data: {
+        url,
+        searchQuery,
+        htmlLength: html.length,
+        jsonCandidates: jsonResults.length,
+        htmlCandidates: htmlResults.length,
+        topCandidates: results
+          .filter(r => r.matchScore >= minCandidateScore)
+          .sort((a,b) => b.matchScore - a.matchScore || a.price - b.price)
+          .slice(0, 8)
+          .map(r => ({ title: r.title, price: r.price, oldPrice: r.oldPrice, score: r.matchScore, isPromo: r.isPromo, url: r.url }))
+      }
+    });
+    allResults.push(...results);
+  }
 
   const deduped = [];
   const seen = new Set();
-  for (const r of results.sort((a,b) => b.matchScore - a.matchScore || a.price - b.price)) {
-    const key = `${r.title}|${r.price}`;
+  for (const r of allResults.sort((a,b) => b.matchScore - a.matchScore || a.price - b.price)) {
+    const key = `${r.store}|${normalizeText(r.title)}|${r.price}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(r);
   }
-  return deduped.slice(0, 5);
+  return deduped.slice(0, 10);
 }
 
 function classifyScraperError(error) {
@@ -344,20 +404,26 @@ function classifyScraperError(error) {
   return msg;
 }
 
-export async function searchAllStores(query, context = '') {
+export async function searchAllStores(query, context = '', logger = null) {
   const stores = getEnabledStores();
   console.log('[scraper] lojas ativas:', stores.map(s => s.name).join(', '));
+  logger?.({ level: 'info', event: 'product_start', message: `A verificar "${query}"`, data: { query, context, enabledStores: stores.map(s => s.name) } });
 
   const settled = await Promise.allSettled(stores.map(async store => {
     try {
-      return await searchStore(store, query, context);
+      const results = await searchStore(store, query, context, logger);
+      logger?.({ level: 'info', event: 'store_done', store: store.name, message: `${store.name}: ${results.length} resultados totais antes do filtro final`, data: { count: results.length } });
+      return results;
     } catch (error) {
       const reason = classifyScraperError(error);
       console.warn(`[scraper] ${store.name}: ${reason}`);
+      logger?.({ level: 'warn', event: 'store_error', store: store.name, message: `${store.name}: ${reason}`, data: { error: error?.message || String(error), status: error?.status || null } });
       return [];
     }
   }));
-  return settled.flatMap(s => s.status === 'fulfilled' ? s.value : []);
+  const flat = settled.flatMap(s => s.status === 'fulfilled' ? s.value : []);
+  logger?.({ level: 'info', event: 'product_done', message: `Verificação concluída para "${query}": ${flat.length} candidatos antes do filtro final`, data: { totalCandidates: flat.length } });
+  return flat;
 }
 
 export const STORES = ALL_STORES;

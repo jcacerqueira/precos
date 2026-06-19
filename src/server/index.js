@@ -11,8 +11,10 @@ import {
   updateProduct,
   deleteProduct,
   resetResults,
+  resetScrapeLogs,
   recentResults,
-  productResults
+  productResults,
+  recentScrapeLogs
 } from './db.js';
 import { checkAllProducts } from './scraper.js';
 import { getStoreConfig } from './stores/index.js';
@@ -69,9 +71,20 @@ app.get('/api/results/recent', async (req, res, next) => {
   try { res.json(await recentResults(Number(req.query.limit || 100))); } catch (error) { next(error); }
 });
 
+app.get('/api/logs/scraper', requireAdmin, async (req, res, next) => {
+  try { res.json(await recentScrapeLogs(Number(req.query.limit || 250))); } catch (error) { next(error); }
+});
 
 app.get('/api/products/:id/results', async (req, res, next) => {
-  try { res.json(await productResults(req.params.id)); } catch (error) { next(error); }
+  try {
+    const rows = await productResults(req.params.id);
+    const byStore = new Map(rows.map(r => [r.store, r]));
+    const allStores = getStoreConfig().filter(s => s.enabled).map(s => {
+      const r = byStore.get(s.name);
+      return r || { id: `empty-${s.key}`, store: s.name, title: 'Sem resultado', price: null, old_price: null, promo_text: null, url: null, match_score: null, is_promo: false, checked_at: null, no_result: true };
+    });
+    res.json(allStores);
+  } catch (error) { next(error); }
 });
 
 app.post('/api/admin/check-now', requireAdmin, async (_, res, next) => {
@@ -82,6 +95,13 @@ app.post('/api/admin/reset-results', requireAdmin, async (_, res, next) => {
   try {
     await resetResults();
     res.json({ ok: true, result: { reset: true, message: 'Resultados e notificações apagados. Os produtos monitorizados foram mantidos.' } });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/reset-scrape-logs', requireAdmin, async (_, res, next) => {
+  try {
+    await resetScrapeLogs();
+    res.json({ ok: true, result: { reset: true, message: 'Logs do scraper apagados.' } });
   } catch (error) { next(error); }
 });
 
