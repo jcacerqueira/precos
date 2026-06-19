@@ -10,6 +10,7 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  resetResults,
   recentResults
 } from './db.js';
 import { checkAllProducts } from './scraper.js';
@@ -69,6 +70,13 @@ app.get('/api/results/recent', async (req, res, next) => {
 
 app.post('/api/admin/check-now', requireAdmin, async (_, res, next) => {
   try { res.json({ ok: true, checked: await checkAllProducts() }); } catch (error) { next(error); }
+});
+
+app.post('/api/admin/reset-results', requireAdmin, async (_, res, next) => {
+  try {
+    await resetResults();
+    res.json({ ok: true, result: { reset: true, message: 'Resultados e notificações apagados. Os produtos monitorizados foram mantidos.' } });
+  } catch (error) { next(error); }
 });
 
 app.post('/api/admin/smtp-diagnostics', requireAdmin, async (_, res, next) => {

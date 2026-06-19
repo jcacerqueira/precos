@@ -120,6 +120,11 @@ export async function deleteProduct(id) {
   await pool.query('DELETE FROM watched_products WHERE id = $1', [id]);
 }
 
+export async function resetResults() {
+  await pool.query('DELETE FROM store_results');
+  await pool.query("DELETE FROM notification_log WHERE type IN ('promotion', 'summary')");
+}
+
 export async function saveResults(productId, results) {
   for (const result of results) {
     await pool.query(

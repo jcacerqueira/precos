@@ -48,3 +48,17 @@ Botões incluídos:
 - Enviar resumo teste
 - Enviar promoção teste
 - Executar rotina diária
+
+
+## Melhorias desta versão
+
+- Botão **Reset resultados** no admin: apaga `store_results` e histórico de notificações, mantendo os produtos monitorizados.
+- A tabela de produtos monitorizados passa a mostrar o link **Abrir loja** para o resultado mais barato.
+- A deteção de promoção ficou mais restrita: já não marca promoção só porque aparece texto genérico como “promoções” ou “campanhas” no card/site.
+- A pesquisa guarda apenas o melhor resultado por loja e usa `MIN_MATCH_SCORE` para reduzir falsos positivos.
+
+Opcional:
+
+```env
+MIN_MATCH_SCORE=35
+```

@@ -111,6 +111,7 @@ function App() {
       </div>
       <div className="actions">
         <button disabled={loading} onClick={() => adminAction('/api/admin/check-now', 'Verificar preços agora')}>Verificar preços agora</button>
+        <button disabled={loading} onClick={() => { if (confirm('Apagar todos os últimos resultados e histórico de notificações? Os produtos monitorizados ficam guardados.')) adminAction('/api/admin/reset-results', 'Reset aos últimos resultados'); }}>Reset resultados</button>
         <button disabled={loading} onClick={() => adminAction('/api/admin/smtp-diagnostics', 'Diagnóstico SMTP')}>Diagnóstico SMTP</button>
         <button disabled={loading} onClick={() => adminAction('/api/admin/send-summary-test', 'Enviar email resumo teste')}>Enviar resumo teste</button>
         <button disabled={loading} onClick={() => adminAction('/api/admin/send-promotion-test', 'Enviar email promoção teste')}>Enviar promoção teste</button>
@@ -148,12 +149,13 @@ function App() {
     <section className="card">
       <h2>Produtos monitorizados</h2>
       <div className="table">
-        <div className="tr th"><span>Produto</span><span>Loja mais barata</span><span>Preço</span><span>Estado</span><span></span></div>
+        <div className="tr th"><span>Produto</span><span>Loja mais barata</span><span>Preço</span><span>Estado</span><span>Link</span><span></span></div>
         {products.map(p => <div className="tr" key={p.id}>
           <span><strong>{p.name}</strong>{p.context ? <small>{p.context}</small> : null}</span>
           <span>{p.best_result?.store || 'Sem resultado'}</span>
           <span>{p.best_result?.price ? money(p.best_result.price) : '-'}</span>
           <span>{p.best_result?.isPromo ? <b className="promo">Promoção</b> : 'Normal'}</span>
+          <span>{p.best_result?.url ? <a href={p.best_result.url} target="_blank" rel="noreferrer">Abrir loja</a> : '-'}</span>
           <span><button className="ghost" onClick={() => removeProduct(p.id)}>Remover</button></span>
         </div>)}
         {!products.length && <p className="empty">Ainda não adicionaste produtos.</p>}
@@ -167,7 +169,7 @@ function App() {
           <div>
             <strong>{r.product_name}</strong>
             <p>{r.title}</p>
-            {r.url && <a href={r.url} target="_blank">Abrir loja</a>}
+            {r.url && <a href={r.url} target="_blank" rel="noreferrer">Abrir loja</a>}
           </div>
           <div><b>{r.store}</b><span>{money(r.price)}</span>{r.is_promo && <em>Promoção</em>}</div>
         </article>)}

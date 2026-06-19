@@ -124,19 +124,25 @@ function extractOldPrice(node, text) {
 }
 
 function extractPromoText(node, text) {
-  const raw = [
-    node.find('.badge,.label,.promotion,.discount,[class*="discount"],[class*="campaign"]').first().text(),
-    text.match(/(?:promoção|desconto|poupe|antes|leve\s+\d|\d+\s?%|2\s?ª\s?unidade|campanha)[^€]{0,80}/i)?.[0]
-  ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  // Promoções só devem vir de elementos pequenos e próximos do produto.
+  // Antes usávamos o texto completo do card, que em alguns sites inclui menus como
+  // "promoções"/"campanhas" e fazia quase tudo aparecer como promoção.
+  const badgeText = node
+    .find('.badge,.label,.promotion,.discount,.promo,[class*="discount"],[class*="promo"],[class*="campaign"],del,s')
+    .text()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const explicit = String(text || '').match(/(?:poupe\s+\d{1,3}[,.]\d{2}\s*€|antes\s+\d{1,3}[,.]\d{2}\s*€|\d+\s?%\s*(?:desconto|off)|2\s?ª\s?unidade|leve\s+\d\s+pague\s+\d)/i)?.[0];
+  const raw = [badgeText, explicit].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
   if (!raw) return null;
-  if (!/(promo|desconto|poupe|antes|leve|%|campanha|unidade|oferta)/i.test(raw)) return null;
+  if (!/(desconto|poupe|antes\s+\d|\d+\s?%|2\s?ª|leve\s+\d|oferta|promo)/i.test(raw)) return null;
   return raw.slice(0, 160);
 }
 
-function isPromotion({ price, oldPrice, promoText, text }) {
+function isPromotion({ price, oldPrice, promoText }) {
   if (oldPrice && price && oldPrice > price * 1.02) return true;
-  if (promoText && /(promo|desconto|poupe|antes|leve|%|campanha|oferta)/i.test(promoText)) return true;
-  if (/(promoção|desconto|poupe|antes\s+\d{1,3}[,.]\d{2}\s*€|\d+\s?%\s*(?:desconto|off)|2\s?ª\s?unidade)/i.test(text)) return true;
+  if (promoText && /(desconto|poupe|antes\s+\d|\d+\s?%|2\s?ª|leve\s+\d|oferta)/i.test(promoText)) return true;
   return false;
 }
 
@@ -168,7 +174,7 @@ function extractJsonLdProducts($, storeName, baseUrl, query, context) {
               title,
               price,
               oldPrice: null,
-              promoText: p.offers?.priceValidUntil ? `Preço válido até ${p.offers.priceValidUntil}` : null,
+              promoText: null,
               url: absoluteUrl(baseUrl, p.url || p.offers?.url),
               imageUrl: Array.isArray(p.image) ? p.image[0] : p.image,
               matchScore,
