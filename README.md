@@ -1,15 +1,14 @@
 # PriceWatch PT Comparator
 
-App React + Express para monitorizar produtos por nome, comparar preços por supermercado, enviar resumo diário e alertas de promoção.
+Versão com melhorias de correspondência de produtos por tamanho/embalagem.
 
-## Novidades desta versão
+## Principais melhorias
 
-- Página/área de **Logs do scraper** no admin.
-- Endpoint `/api/logs/scraper` com logs detalhados por produto/loja.
-- Botão **Reset logs**.
-- Ao abrir **Ver lojas**, aparecem todas as lojas ativas, incluindo as que ficaram `Sem resultado`.
-- Logs guardam candidatos encontrados, candidatos rejeitados por score, erros 403/404/timeout e resultados aceites.
-- Pesquisa tenta variações do termo, por exemplo com e sem tamanho `1.5L`.
+- Rejeita resultados com tamanho diferente quando o produto pesquisado inclui tamanho, por exemplo `1.5L` já não deve aceitar `0.5L`.
+- Rejeita latas/packs quando a pesquisa não pede lata/pack.
+- Usa o texto completo do card para encontrar tamanho, mas limpa o nome mostrado.
+- Mantém detalhe por supermercado com link.
+- Mantém logs do scraper para diagnosticar candidatos aceites/rejeitados.
 
 ## Variáveis recomendadas no Railway
 
@@ -17,40 +16,14 @@ App React + Express para monitorizar produtos por nome, comparar preços por sup
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 NODE_ENV=production
 CHECK_CRON=0 9 * * *
-ADMIN_API_KEY=uma-chave-secreta
-SCRAPER_USER_AGENT=PriceWatchPT/2.6 contact:teu-email@example.com
+ADMIN_API_KEY=trocar-por-chave-secreta
+SCRAPER_USER_AGENT=PriceWatchPT/2.4 contact:jcacerqueira@gmail.com
 REQUEST_TIMEOUT_MS=15000
 ENABLED_STORES=continente,auchan,pingodoce,lidl
 MIN_MATCH_SCORE=25
 RESEND_API_KEY=re_xxxxx
 RESEND_FROM=PriceWatch PT <onboarding@resend.dev>
-ALERT_TO=teu-email@example.com
+ALERT_TO=jcacerqueira@gmail.com
 ```
 
-Depois de atualizar, faz:
-
-1. Redeploy no Railway.
-2. Clica em **Reset resultados**.
-3. Clica em **Reset logs**.
-4. Clica em **Verificar preços agora**.
-5. Abre **Ver logs scraper** para ver o que aconteceu loja a loja.
-
-## Deploy
-
-```powershell
-git init
-git branch -M main
-git remote add origin https://github.com/jcacerqueira/precos.git
-git add .
-git commit -m "Add scraper logs and all store details"
-git push -u origin main --force
-```
-
-Se o `origin` já existir:
-
-```powershell
-git remote set-url origin https://github.com/jcacerqueira/precos.git
-git add .
-git commit -m "Add scraper logs and all store details"
-git push -u origin main --force
-```
+Depois de atualizar, usar: Reset resultados → Reset logs → Verificar preços agora.

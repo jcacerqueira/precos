@@ -56,10 +56,74 @@ function tokenize(value = '') {
     .filter(t => t.length > 1 && !['de','do','da','e','com','pt','un','pack','emb','sem','gas','gás'].includes(t));
 }
 
+function unitToBase(value, unit) {
+  const n = Number(String(value).replace(',', '.'));
+  const u = normalizeText(unit);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (['l', 'lt', 'litro', 'litros'].includes(u)) return { value: n * 1000, group: 'volume', label: `${n}L` };
+  if (['ml', 'cl'].includes(u)) return { value: u === 'cl' ? n * 10 : n, group: 'volume', label: `${n}${u}` };
+  if (['kg'].includes(u)) return { value: n * 1000, group: 'weight', label: `${n}kg` };
+  if (['g'].includes(u)) return { value: n, group: 'weight', label: `${n}g` };
+  return null;
+}
+
+function extractSizes(value = '') {
+  const text = normalizeText(value);
+  const sizes = [];
+  const re = /\b(\d+(?:[,.]\d+)?)\s*(l|lt|litro|litros|ml|cl|kg|g)\b/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const size = unitToBase(m[1], m[2]);
+    if (size) sizes.push(size);
+  }
+  return sizes;
+}
+
+function hasPackOrCanMismatch(query = '', text = '') {
+  const q = normalizeText(query);
+  const t = normalizeText(text);
+  const queryAsksCan = /\b(lata|latas|pack|multipack|6x|4x|12x)\b/.test(q);
+  const candidateIsCanOrPack = /\b(lata|latas|pack|multipack|6x|4x|12x|24x)\b/.test(t);
+  return candidateIsCanOrPack && !queryAsksCan;
+}
+
+function sizeCompatibility(query = '', candidateText = '') {
+  const wanted = extractSizes(query);
+  if (!wanted.length) return { ok: true, penalty: 0, bonus: 0, reason: null };
+
+  if (hasPackOrCanMismatch(query, candidateText)) {
+    return { ok: false, penalty: 80, bonus: 0, reason: 'produto é lata/pack mas a pesquisa não pediu lata/pack' };
+  }
+
+  const found = extractSizes(candidateText);
+  if (!found.length) return { ok: true, penalty: 18, bonus: 0, reason: 'tamanho pedido não aparece no candidato' };
+
+  for (const w of wanted) {
+    for (const f of found) {
+      if (w.group !== f.group) continue;
+      const diff = Math.abs(w.value - f.value) / w.value;
+      if (diff <= 0.06) return { ok: true, penalty: 0, bonus: 35, reason: null };
+    }
+  }
+  return { ok: false, penalty: 90, bonus: 0, reason: `tamanho diferente: pedido ${wanted.map(s => s.label).join(', ')}, candidato ${found.map(s => s.label).join(', ')}` };
+}
+
+function cleanCandidateTitle(title = '') {
+  return String(title || '')
+    .replace(/\s+\d{1,3}[,.]\d{2}\s*€.*$/i, '')
+    .replace(/\s+\d{1,3}[,.]\d{2}\s*(?:\/|por)?\s*(?:kg|g|l|lt|ml|cl|un).*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function scoreMatch(query, title, context = '') {
   const wanted = [...new Set(tokenize(`${query} ${context}`))];
-  const actual = normalizeText(title);
+  const candidateText = `${title} ${context}`;
+  const actual = normalizeText(candidateText);
   if (!wanted.length || !actual) return 0;
+
+  const size = sizeCompatibility(query, candidateText);
+  if (!size.ok) return 0;
 
   let matched = 0;
   let score = 0;
@@ -71,26 +135,22 @@ export function scoreMatch(query, title, context = '') {
   }
 
   const q = normalizeText(query);
-  if (q && actual.includes(q)) score += 50;
+  const titleOnly = normalizeText(title);
+  if (q && titleOnly.includes(q)) score += 50;
 
   // Se a maior parte dos termos distintivos aparece, aceita mesmo quando a ordem é diferente.
   const coverage = matched / wanted.length;
   if (coverage >= 0.75) score += 35;
   else if (coverage >= 0.55) score += 18;
 
-  const wantedSize = normalizeText(`${query} ${context}`).match(/\b\d+(?:[,.]\d+)?\s?(l|lt|ml|kg|g)\b/g) || [];
-  for (const s of wantedSize) {
-    const comma = s.replace('.', ',');
-    const dot = s.replace(',', '.');
-    const spaced = dot.replace(/(\d)(l|lt|ml|kg|g)$/i, '$1 $2');
-    if (actual.includes(comma) || actual.includes(dot) || actual.includes(spaced)) score += 25;
-  }
+  score += size.bonus;
+  score -= size.penalty;
 
   // Penaliza produtos claramente de outra marca quando a query contém marca conhecida.
   const brandTokens = ['santal','fanta','compal','coca','cola','pepsi','sumol','lipton','frize','super', 'bock'];
   const queryBrands = brandTokens.filter(b => q.includes(b));
   for (const brand of queryBrands) {
-    if (!actual.includes(brand)) score -= 25;
+    if (!actual.includes(brand)) score -= 35;
   }
 
   return Math.max(0, Math.min(Math.round(score), 100));
@@ -186,7 +246,13 @@ function extractPromoText(node, text) {
     .trim();
 
   const explicit = String(text || '').match(/(?:poupe\s+\d{1,3}[,.]\d{2}\s*€|antes\s+\d{1,3}[,.]\d{2}\s*€|\d+\s?%\s*(?:desconto|off)|2\s?ª\s?unidade|leve\s+\d\s+pague\s+\d)/i)?.[0];
-  const raw = [badgeText, explicit].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const parts = [badgeText, explicit]
+    .filter(Boolean)
+    .flatMap(x => String(x).split(/\s{2,}|\|/))
+    .map(x => x.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const unique = [...new Set(parts.map(x => x.toLowerCase()))].map(lower => parts.find(p => p.toLowerCase() === lower));
+  const raw = unique.join(' ').replace(/\b(Promoção)(?:\s+\1)+\b/gi, '$1').trim();
   if (!raw) return null;
   if (!/(desconto|poupe|antes\s+\d|\d+\s?%|2\s?ª|leve\s+\d|oferta|promo)/i.test(raw)) return null;
   return raw.slice(0, 160);
@@ -219,7 +285,9 @@ function extractJsonLdProducts($, storeName, baseUrl, query, context) {
             const title = p.name || p.title;
             const price = Number(String(p.offers?.price || p.offers?.lowPrice || '').replace(',', '.'));
             if (!title || !price) continue;
-            const matchScore = scoreMatch(query, title, context);
+            const candidateText = `${title} ${p.description || ''} ${p.sku || ''}`;
+            if (!sizeCompatibility(`${query} ${context}`, candidateText).ok) continue;
+            const matchScore = scoreMatch(query, title, `${context} ${candidateText}`);
             if (matchScore < 25) continue;
             results.push({
               store: storeName,
@@ -259,10 +327,11 @@ function extractHtmlCandidates($, storeName, baseUrl, query, context) {
 
       const link = node.find('a[href]').first().attr('href') || node.closest('a[href]').attr('href');
       const url = absoluteUrl(baseUrl, link);
-      const title =
+      const title = cleanCandidateTitle(
         node.find('[itemprop="name"]').first().text().trim() ||
         node.find('h1,h2,h3,h4,.name,.product-name,.title,[class*="name"],[class*="title"]').first().text().trim() ||
-        text.split('€')[0].slice(0, 140).trim();
+        text.split('€')[0].slice(0, 140).trim()
+      );
       if (!title) return;
       const key = `${storeName}:${title}:${price}`;
       if (seen.has(key)) return;
@@ -271,7 +340,9 @@ function extractHtmlCandidates($, storeName, baseUrl, query, context) {
       const oldPrice = structuredPrice.oldPrice || textPrice.oldPrice || extractOldPrice(node, text);
       const promoText = extractPromoText(node, text);
       const imageUrl = absoluteUrl(baseUrl, node.find('img[src]').first().attr('src'));
-      const matchScore = scoreMatch(query, title, context);
+      const sizeCheck = sizeCompatibility(`${query} ${context}`, `${title} ${text}`);
+      if (!sizeCheck.ok) return;
+      const matchScore = scoreMatch(query, title, `${context} ${text.slice(0, 500)}`);
       if (matchScore < 25) return;
 
       candidates.push({
