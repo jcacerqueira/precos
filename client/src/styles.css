@@ -45,3 +45,11 @@ em { display: inline-block; margin-top: 6px; color: #b42318; font-style: normal;
 .chip { border-radius:999px; padding:7px 10px; font-size:13px; border:1px solid #cbd5e1; }
 .chip.on { background:#ecfdf5; border-color:#86efac; color:#166534; }
 .chip.off { background:#f8fafc; color:#64748b; }
+.row-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.store-detail { min-width:760px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin: 0 0 12px; }
+.store-detail h3 { margin:0 0 12px; font-size:16px; color:#334155; }
+.detail-table { display:grid; gap:0; overflow-x:auto; }
+.detail-row { display:grid; grid-template-columns: 1fr 2.2fr .8fr 1fr .5fr .5fr; gap:12px; align-items:start; padding:10px 0; border-bottom:1px solid #e2e8f0; min-width:880px; }
+.detail-row:last-child { border-bottom:0; }
+.detail-head { font-weight:800; color:#475569; }
+.detail-row small { font-size:12px; }

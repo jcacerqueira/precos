@@ -30,6 +30,8 @@ function App() {
   const [form, setForm] = useState({ name: '', context: '', targetPrice: '' });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [expanded, setExpanded] = useState({});
+  const [expandedLoading, setExpandedLoading] = useState(null);
 
   const promoCount = useMemo(() => products.filter(p => p.best_result?.isPromo).length, [products]);
 
@@ -78,6 +80,20 @@ function App() {
       await load();
     } catch (error) { setMessage(error.message); }
     finally { setLoading(false); }
+  }
+
+
+  async function toggleProductResults(productId) {
+    if (expanded[productId]) {
+      setExpanded(prev => ({ ...prev, [productId]: null }));
+      return;
+    }
+    setExpandedLoading(productId);
+    try {
+      const rows = await api(`/api/products/${productId}/results`);
+      setExpanded(prev => ({ ...prev, [productId]: rows }));
+    } catch (error) { setMessage(error.message); }
+    finally { setExpandedLoading(null); }
   }
 
   async function adminAction(path, label) {
@@ -150,14 +166,34 @@ function App() {
       <h2>Produtos monitorizados</h2>
       <div className="table">
         <div className="tr th"><span>Produto</span><span>Loja mais barata</span><span>Preço</span><span>Estado</span><span>Link</span><span></span></div>
-        {products.map(p => <div className="tr" key={p.id}>
-          <span><strong>{p.name}</strong>{p.context ? <small>{p.context}</small> : null}</span>
-          <span>{p.best_result?.store || 'Sem resultado'}</span>
-          <span>{p.best_result?.price ? money(p.best_result.price) : '-'}</span>
-          <span>{p.best_result?.isPromo ? <b className="promo">Promoção</b> : 'Normal'}</span>
-          <span>{p.best_result?.url ? <a href={p.best_result.url} target="_blank" rel="noreferrer">Abrir loja</a> : '-'}</span>
-          <span><button className="ghost" onClick={() => removeProduct(p.id)}>Remover</button></span>
-        </div>)}
+        {products.map(p => <React.Fragment key={p.id}>
+          <div className="tr">
+            <span><strong>{p.name}</strong>{p.context ? <small>{p.context}</small> : null}</span>
+            <span>{p.best_result?.store || 'Sem resultado'}</span>
+            <span>{p.best_result?.price ? money(p.best_result.price) : '-'}</span>
+            <span>{p.best_result?.isPromo ? <b className="promo">Promoção</b> : 'Normal'}</span>
+            <span>{p.best_result?.url ? <a href={p.best_result.url} target="_blank" rel="noreferrer">Abrir loja</a> : '-'}</span>
+            <span className="row-actions">
+              <button className="ghost" onClick={() => toggleProductResults(p.id)}>{expandedLoading === p.id ? 'A carregar...' : expanded[p.id] ? 'Fechar' : 'Ver lojas'}</button>
+              <button className="ghost" onClick={() => removeProduct(p.id)}>Remover</button>
+            </span>
+          </div>
+          {expanded[p.id] && <div className="store-detail">
+            <h3>Preços encontrados para {p.name}</h3>
+            <div className="detail-table">
+              <div className="detail-row detail-head"><span>Loja</span><span>Produto encontrado</span><span>Preço</span><span>Estado</span><span>Score</span><span>Link</span></div>
+              {expanded[p.id].map(r => <div className="detail-row" key={r.id}>
+                <span>{r.store}</span>
+                <span>{r.title}</span>
+                <span>{money(r.price)}{r.old_price ? <small>Antes/PVPR {money(r.old_price)}</small> : null}</span>
+                <span>{r.is_promo ? <b className="promo">Promoção</b> : 'Normal'}{r.promo_text ? <small>{r.promo_text}</small> : null}</span>
+                <span>{r.match_score}</span>
+                <span>{r.url ? <a href={r.url} target="_blank" rel="noreferrer">Abrir</a> : '-'}</span>
+              </div>)}
+              {!expanded[p.id].length && <p className="empty">Ainda não há resultados recentes para este produto.</p>}
+            </div>
+          </div>}
+        </React.Fragment>)}
         {!products.length && <p className="empty">Ainda não adicionaste produtos.</p>}
       </div>
     </section>

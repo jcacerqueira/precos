@@ -11,7 +11,8 @@ import {
   updateProduct,
   deleteProduct,
   resetResults,
-  recentResults
+  recentResults,
+  productResults
 } from './db.js';
 import { checkAllProducts } from './scraper.js';
 import { getStoreConfig } from './stores/index.js';
@@ -66,6 +67,11 @@ app.delete('/api/products/:id', requireAdmin, async (req, res, next) => {
 
 app.get('/api/results/recent', async (req, res, next) => {
   try { res.json(await recentResults(Number(req.query.limit || 100))); } catch (error) { next(error); }
+});
+
+
+app.get('/api/products/:id/results', async (req, res, next) => {
+  try { res.json(await productResults(req.params.id)); } catch (error) { next(error); }
 });
 
 app.post('/api/admin/check-now', requireAdmin, async (_, res, next) => {

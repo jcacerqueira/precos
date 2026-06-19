@@ -73,26 +73,55 @@ export function scoreMatch(query, title, context = '') {
   return Math.min(score, 100);
 }
 
-function parsePrice(text = '') {
-  if (!text) return null;
-  let cleaned = String(text)
-    .replace(/\s+/g, ' ')
-    .replace(/€/g, ' €')
-    .trim();
-
-  // Remove preços por unidade, ex: "0,99 €/Lt", "6,60 €/kg", "0,10 €/100ml".
-  // Estes aparecem muito nos supermercados e não são o preço final do produto.
-  cleaned = cleaned.replace(/\b\d{1,3}(?:[.,]\d{2})\s*€\s*\/\s*(?:kg|g|l|lt|litro|litros|ml|cl|un|unid|100\s?g|100\s?ml)\b/gi, ' ');
-  cleaned = cleaned.replace(/\b\d{1,3}(?:[.,]\d{2})\s*€\s*(?:por|\/)?\s*(?:kg|g|l|lt|litro|litros|ml|cl|un|unid|100\s?g|100\s?ml)\b/gi, ' ');
-
-  const matches = [...cleaned.matchAll(/\b(\d{1,3}(?:[.,]\d{2}))\s*€/g)].map(m => Number(m[1].replace(',', '.')));
-  if (!matches.length) return null;
-  const valid = matches.filter(v => v > 0 && v < 100);
-  if (!valid.length) return null;
-  return valid[0];
+function priceCandidates(text = '') {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  const candidates = [];
+  const re = /\b(\d{1,3}(?:[.,]\d{2}))\s*€/g;
+  let match;
+  while ((match = re.exec(raw))) {
+    const value = Number(match[1].replace(',', '.'));
+    if (!value || value <= 0 || value >= 100) continue;
+    const before = raw.slice(Math.max(0, match.index - 45), match.index).toLowerCase();
+    const after = raw.slice(match.index + match[0].length, match.index + match[0].length + 55).toLowerCase();
+    const context = `${before} ${after}`;
+    const isUnit = /^\s*(?:\/|por)?\s*(?:kg|g|l|lt|litro|litros|ml|cl|un|unid|100\s?g|100\s?ml)\b/i.test(after);
+    const isDeposit = /(?:dep[óo]sito|sdr|tara|vasilhame)/i.test(context);
+    const isOld = /(?:pvpr|p\.v\.p\.r|antes|pre[çc]o\s*(?:anterior|recomendado|ris[cç]ado)|de\s*$)/i.test(before) || /(?:pvpr|pre[çc]o\s*recomendado)/i.test(after);
+    candidates.push({ value, isUnit, isDeposit, isOld, index: match.index, raw: match[0], context: context.trim() });
+  }
+  return candidates;
 }
 
-function extractStructuredPrice(node) {
+function pickPriceInfo(text = '') {
+  const all = priceCandidates(text);
+  const product = all.filter(c => !c.isUnit && !c.isDeposit);
+  if (!product.length) return { price: null, oldPrice: null };
+
+  const oldCandidates = product.filter(c => c.isOld).map(c => c.value);
+  const currentCandidates = product.filter(c => !c.isOld).map(c => c.value);
+
+  let price = null;
+  if (currentCandidates.length) {
+    // Em páginas com PVPR + preço atual, o preço atual costuma ser o menor dos preços não-unitários.
+    // Excluímos unitário e depósito antes desta regra para evitar 0,90 €/lt ou +0,10 € depósito.
+    price = Math.min(...currentCandidates);
+  } else {
+    price = Math.min(...product.map(c => c.value));
+  }
+
+  const possibleOld = [
+    ...oldCandidates,
+    ...product.map(c => c.value).filter(v => price && v > price * 1.02)
+  ];
+  const oldPrice = possibleOld.length ? Math.max(...possibleOld) : null;
+  return { price, oldPrice: oldPrice && price && oldPrice > price ? oldPrice : null };
+}
+
+function parsePrice(text = '') {
+  return pickPriceInfo(text).price;
+}
+
+function extractStructuredPriceInfo(node) {
   const selectors = [
     '[itemprop="price"]', '[content][itemprop="price"]', 'meta[property="product:price:amount"]',
     '[data-price]', '[data-test*="price"]', '[data-testid*="price"]',
@@ -103,10 +132,10 @@ function extractStructuredPrice(node) {
     const el = node.find(selector).first();
     if (!el.length) continue;
     const raw = String(el.attr('content') || el.attr('data-price') || el.attr('value') || el.text() || '');
-    const price = parsePrice(raw.includes('€') ? raw : `${raw} €`);
-    if (price) return price;
+    const info = pickPriceInfo(raw.includes('€') ? raw : `${raw} €`);
+    if (info.price) return info;
   }
-  return null;
+  return { price: null, oldPrice: null };
 }
 
 function extractOldPrice(node, text) {
@@ -200,7 +229,9 @@ function extractHtmlCandidates($, storeName, baseUrl, query, context) {
       const node = $(el);
       const text = node.text().replace(/\s+/g, ' ').trim();
       if (text.length < 8 || text.length > 1400) return;
-      const price = extractStructuredPrice(node) || parsePrice(text);
+      const structuredPrice = extractStructuredPriceInfo(node);
+      const textPrice = pickPriceInfo(text);
+      const price = structuredPrice.price || textPrice.price;
       if (!price) return;
 
       const link = node.find('a[href]').first().attr('href') || node.closest('a[href]').attr('href');
@@ -214,7 +245,7 @@ function extractHtmlCandidates($, storeName, baseUrl, query, context) {
       if (seen.has(key)) return;
       seen.add(key);
 
-      const oldPrice = extractOldPrice(node, text);
+      const oldPrice = structuredPrice.oldPrice || textPrice.oldPrice || extractOldPrice(node, text);
       const promoText = extractPromoText(node, text);
       const imageUrl = absoluteUrl(baseUrl, node.find('img[src]').first().attr('src'));
       const matchScore = scoreMatch(query, title, context);

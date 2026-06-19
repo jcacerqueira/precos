@@ -62,3 +62,16 @@ Opcional:
 ```env
 MIN_MATCH_SCORE=35
 ```
+
+
+## Versão 2.5 — preço correto e detalhes por supermercado
+
+Melhorias incluídas:
+
+- Corrige casos em que o scraper lia PVPR/preço antigo como preço atual, como `PVPR 2,04€` em vez de `1,35€`.
+- Ignora preços unitários como `0,90 €/lt`, `0,99 €/Lt`, `€/kg`, `€/100ml` e valores de depósito.
+- Guarda PVPR/preço anterior como `oldPrice` e usa-o para marcar promoção quando é maior que o preço atual.
+- Na tabela de produtos, o botão **Ver lojas** abre todos os resultados recentes por supermercado, com preço, estado, score e link direto.
+- Mantém o botão **Reset resultados** para limpar resultados antigos antes de voltar a verificar.
+
+Depois de instalar esta versão, clica em **Reset resultados** e depois em **Verificar preços agora** para eliminar resultados antigos que tinham preços mal extraídos.

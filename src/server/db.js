@@ -220,3 +220,21 @@ export async function recentResults(limit = 100) {
   `, [limit]);
   return rows;
 }
+
+export async function productResults(productId) {
+  const { rows } = await pool.query(`
+    WITH latest AS (
+      SELECT DISTINCT ON (store)
+        id, product_id, store, title, price, old_price, promo_text, url, image_url,
+        match_score, is_promo, checked_at
+      FROM store_results
+      WHERE product_id = $1
+        AND checked_at > NOW() - INTERVAL '72 hours'
+      ORDER BY store, checked_at DESC, match_score DESC
+    )
+    SELECT *
+    FROM latest
+    ORDER BY price ASC, match_score DESC
+  `, [productId]);
+  return rows;
+}
